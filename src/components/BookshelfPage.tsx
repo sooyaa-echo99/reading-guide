@@ -41,6 +41,10 @@ export default function BookshelfPage() {
   // Read book detail state
   const [readDetail, setReadDetail] = useState<BookshelfEntry | null>(null);
 
+  // Full guide overlay (reached from read detail)
+  const [fullGuideFromRead, setFullGuideFromRead] = useState<BookGuide | null>(null);
+  const [fullGuideLoading, setFullGuideLoading] = useState(false);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -77,6 +81,25 @@ export default function BookshelfPage() {
 
   const handleViewRead = (entry: BookshelfEntry) => {
     setReadDetail(entry);
+  };
+
+  const handleReturnToReading = async (entry: BookshelfEntry) => {
+    const cached = getCached(entry.bookName, entry.author || undefined, true);
+    if (cached) {
+      setFullGuideFromRead(cached);
+      return;
+    }
+    setFullGuideLoading(true);
+    try {
+      const guide = await generateBookGuide(entry.bookName, entry.author || undefined, true);
+      setCache(entry.bookName, entry.author || undefined, guide, true);
+      setFullGuideFromRead(guide);
+    } catch {}
+    setFullGuideLoading(false);
+  };
+
+  const handleViewFullGuideFromRead = (guide: BookGuide) => {
+    setFullGuideFromRead(guide);
   };
 
   const handleMarkRead = async () => {
@@ -142,6 +165,15 @@ export default function BookshelfPage() {
             </div>
           </div>
         )}
+        {fullGuideLoading && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40">
+            <div className="bg-white rounded-2xl w-full max-w-sm mx-4 p-8 text-center">
+              <div className="animate-spin w-10 h-10 border-2 border-amber-400 border-t-transparent rounded-full mb-4 mx-auto" />
+              <h3 className="text-base font-bold text-stone-700 mb-1">正在生成阅读指南</h3>
+              <p className="text-xs text-stone-400">AI 正在分析中，请稍候...</p>
+            </div>
+          </div>
+        )}
 
         {/* Error */}
         {guideError && (
@@ -172,6 +204,7 @@ export default function BookshelfPage() {
             tab={tab}
             onViewUnread={handleViewUnread}
             onViewRead={handleViewRead}
+            onReturnToReading={handleReturnToReading}
             onMarkRead={(e) => { setShowReview(e); setReviewText(''); setRating(0); }}
             onDelete={handleDelete}
           />
@@ -182,9 +215,18 @@ export default function BookshelfPage() {
           <GuideOverlay guide={viewingGuide} onClose={() => setViewingGuide(null)} />
         )}
 
+        {/* Guide Overlay (from read detail → 返回阅读) */}
+        {fullGuideFromRead && (
+          <GuideOverlay guide={fullGuideFromRead} onClose={() => setFullGuideFromRead(null)} />
+        )}
+
         {/* Read Detail Overlay */}
         {readDetail && (
-          <ReadDetailOverlay entry={readDetail} onClose={() => setReadDetail(null)} />
+          <ReadDetailOverlay
+            entry={readDetail}
+            onClose={() => setReadDetail(null)}
+            onViewFullGuide={handleViewFullGuideFromRead}
+          />
         )}
 
         {/* Add modal */}
@@ -229,6 +271,7 @@ function Bookshelf({
   tab,
   onViewUnread,
   onViewRead,
+  onReturnToReading,
   onMarkRead,
   onDelete,
 }: {
@@ -236,6 +279,7 @@ function Bookshelf({
   tab: 'unread' | 'read';
   onViewUnread: (e: BookshelfEntry) => void;
   onViewRead: (e: BookshelfEntry) => void;
+  onReturnToReading: (e: BookshelfEntry) => void;
   onMarkRead: (e: BookshelfEntry) => void;
   onDelete: (id: number) => void;
 }) {
@@ -258,8 +302,9 @@ function Bookshelf({
                 tab={tab}
                 onClick={() => {
                   if (entry.status === 'unread') onViewUnread(entry);
-                  else onViewRead(entry);
+                  else onReturnToReading(entry);
                 }}
+                onViewRead={() => onViewRead(entry)}
                 onMarkRead={() => onMarkRead(entry)}
                 onDelete={() => onDelete(entry.id)}
               />
@@ -292,12 +337,14 @@ function BookSpine({
   entry,
   tab,
   onClick,
+  onViewRead,
   onMarkRead,
   onDelete,
 }: {
   entry: BookshelfEntry;
   tab: 'unread' | 'read';
   onClick: () => void;
+  onViewRead: () => void;
   onMarkRead: () => void;
   onDelete: () => void;
 }) {
@@ -400,6 +447,14 @@ function BookSpine({
               className="text-[10px] bg-amber-900 text-amber-50 px-2 py-1 rounded-md cursor-pointer border-none hover:bg-amber-800 whitespace-nowrap shadow-md transition-colors"
             >
               已读
+            </button>
+          )}
+          {entry.status === 'read' && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onViewRead(); }}
+              className="text-[10px] bg-amber-700 text-amber-50 px-2 py-1 rounded-md cursor-pointer border-none hover:bg-amber-600 whitespace-nowrap shadow-md transition-colors"
+            >
+              笔记
             </button>
           )}
           <button
@@ -530,35 +585,55 @@ function GuideOverlay({ guide, onClose }: { guide: BookGuide; onClose: () => voi
 }
 
 // ========== Read Book Detail Overlay ==========
-function ReadDetailOverlay({ entry, onClose }: { entry: BookshelfEntry; onClose: () => void }) {
+function ReadDetailOverlay({ entry, onClose, onViewFullGuide }: { entry: BookshelfEntry; onClose: () => void; onViewFullGuide: (guide: BookGuide) => void }) {
   const [guide, setGuide] = useState<BookGuide | null>(null);
   const [answers, setAnswers] = useState<Answer[]>([]);
   const [loading, setLoading] = useState(true);
+  const [regenerating, setRegenerating] = useState(false);
 
   useEffect(() => {
-    loadData();
+    loadData(false);
   }, [entry.bookKey]);
 
-  const loadData = async () => {
+  const loadData = async (forceRegenerate: boolean) => {
     setLoading(true);
     try {
-      // Try cache first
-      const cached = getCached(entry.bookName, entry.author || undefined, true);
-      if (cached) {
-        setGuide(cached);
-        // Fetch answers
-        const ans = await fetchAnswers(entry.bookName, entry.author || undefined);
-        setAnswers(ans);
-      } else {
-        // Generate fresh
-        const fresh = await generateBookGuide(entry.bookName, entry.author || undefined, true);
-        setCache(entry.bookName, entry.author || undefined, fresh, true);
-        setGuide(fresh);
-        const ans = await fetchAnswers(entry.bookName, entry.author || undefined);
-        setAnswers(ans);
+      // Try cache first (unless forcing regenerate)
+      if (!forceRegenerate) {
+        const cached = getCached(entry.bookName, entry.author || undefined, true);
+        if (cached) {
+          // Check if characterRelations is missing (old cache) — auto-regenerate once
+          if (!cached.characterRelations || !cached.characterRelations.nodes || cached.characterRelations.nodes.length === 0) {
+            // Cache exists but no character relations — regenerate silently
+            const fresh = await generateBookGuide(entry.bookName, entry.author || undefined, true);
+            setCache(entry.bookName, entry.author || undefined, fresh, true);
+            setGuide(fresh);
+            const ans = await fetchAnswers(entry.bookName, entry.author || undefined);
+            setAnswers(ans);
+            setLoading(false);
+            return;
+          }
+          setGuide(cached);
+          const ans = await fetchAnswers(entry.bookName, entry.author || undefined);
+          setAnswers(ans);
+          setLoading(false);
+          return;
+        }
       }
+      // Generate fresh
+      const fresh = await generateBookGuide(entry.bookName, entry.author || undefined, true);
+      setCache(entry.bookName, entry.author || undefined, fresh, true);
+      setGuide(fresh);
+      const ans = await fetchAnswers(entry.bookName, entry.author || undefined);
+      setAnswers(ans);
     } catch { }
     setLoading(false);
+  };
+
+  const handleRegenerate = async () => {
+    setRegenerating(true);
+    await loadData(true);
+    setRegenerating(false);
   };
 
   // Group answers by question index
@@ -580,7 +655,22 @@ function ReadDetailOverlay({ entry, onClose }: { entry: BookshelfEntry; onClose:
             <span className="text-sm">返回书架</span>
           </button>
           <span className="text-sm font-medium text-stone-800">阅读笔记</span>
-          <div className="w-16" />
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleRegenerate}
+              disabled={regenerating}
+              className="text-xs text-amber-600 hover:text-amber-700 bg-amber-50 hover:bg-amber-100 px-3 py-1.5 rounded-lg transition-colors cursor-pointer border-none disabled:opacity-40"
+            >
+              {regenerating ? '生成中...' : '重新生成'}
+            </button>
+            <button
+              onClick={() => guide && onViewFullGuide(guide)}
+              disabled={!guide}
+              className="text-xs text-stone-500 hover:text-stone-700 bg-stone-100 hover:bg-stone-200 px-3 py-1.5 rounded-lg transition-colors cursor-pointer border-none disabled:opacity-30"
+            >
+              返回阅读
+            </button>
+          </div>
         </div>
       </div>
 
@@ -591,7 +681,7 @@ function ReadDetailOverlay({ entry, onClose }: { entry: BookshelfEntry; onClose:
       ) : !guide ? (
         <div className="text-center py-32 text-stone-400">
           <p className="mb-2">加载失败</p>
-          <button onClick={loadData} className="text-amber-600 hover:text-amber-700 text-sm cursor-pointer bg-transparent border-none">重试</button>
+          <button onClick={handleRegenerate} className="text-amber-600 hover:text-amber-700 text-sm cursor-pointer bg-transparent border-none">重试</button>
         </div>
       ) : (
         <main className="max-w-3xl mx-auto px-6 py-8 space-y-10">
