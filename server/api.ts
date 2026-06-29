@@ -43,7 +43,7 @@ router.post('/generate', authMiddleware, async (req: Request, res: Response) => 
   const bookDesc = author ? `《${bookName}》，作者：${author}` : `《${bookName}》`;
   const stickyHint = withStickyNotes ? '（需要生成索引贴分类）' : '';
 
-  const systemPrompt = buildSystemPrompt(!!withStickyNotes);
+  const systemPrompt = buildSystemPrompt(!!withStickyNotes, true);
   const userPrompt = `请为以下书籍生成读前指南：${bookDesc}${stickyHint}。请严格按照JSON格式输出，不要输出任何其他内容。`;
 
   try {
@@ -102,6 +102,7 @@ router.post('/generate', authMiddleware, async (req: Request, res: Response) => 
       suitableReaders: parsed.suitableReaders || '',
       keyConcepts: Array.isArray(parsed.keyConcepts) ? parsed.keyConcepts.slice(0, 5) : [],
       stickyNotes: Array.isArray(parsed.stickyNotes) ? parsed.stickyNotes.slice(0, 8) : undefined,
+      characterRelations: parsed.characterRelations || undefined,
       difficulty: {
         level: parsed.difficulty?.level || '中等',
         languageStyle: parsed.difficulty?.languageStyle || '',
@@ -121,7 +122,7 @@ router.post('/generate', authMiddleware, async (req: Request, res: Response) => 
   }
 });
 
-function buildSystemPrompt(withStickyNotes: boolean): string {
+function buildSystemPrompt(withStickyNotes: boolean, withCharacterRelations: boolean): string {
   const stickySection = withStickyNotes ? `
 ## 索引贴分类（当用户开启时生成）
 在 JSON 中额外添加 "stickyNotes" 字段，为读者生成 4-6 个索引贴分类。
@@ -194,12 +195,28 @@ function buildSystemPrompt(withStickyNotes: boolean): string {
     "languageStyle": "语言风格描述（30字内）",
     "infoDensity": "信息密度描述（30字内）",
     "estimatedHours": "预估阅读时长，如'6-8小时'"
-  }${withStickyNotes ? `,
+  },${withStickyNotes ? `
   "stickyNotes": [
     { "category": "分类名", "examples": ["示例1", "示例2"] }
-  ]` : ''}
+  ],` : ''}
+  "characterRelations": {
+    "nodes": [
+      { "id": "1", "name": "主要人物1", "description": "角色简介（20字内，不剧透结局）" },
+      { "id": "2", "name": "主要人物2", "description": "角色简介（20字内，不剧透结局）" }
+    ],
+    "edges": [
+      { "from": "1", "to": "2", "label": "关系描述（如：母子、对手、师徒等，5字内）" }
+    ]
+  }
 }
 ${stickySection}
+## 人物关系图设计原则（重要）
+- 对于小说、文学、戏剧等有明确人物关系的书籍，必须生成 characterRelations 字段
+- 对于非虚构、技术、哲学等无人物的书，characterRelations 可为空对象 {}
+- nodes：选取 3-8 个主要人物，每个包含 id（数字字符串）、name（姓名）、description（一句话角色定位，不剧透）
+- edges：描述人物之间的核心关系，每条包含 from/to（对应 node id）、label（简短关系标签）
+- 人物关系只描述初始设定和已知关系，不透露人物命运或情节发展
+
 ## 引导问题的设计原则
 - 问题数量：5个，顺序由浅入深。
 - 前2个问题：帮助读者理解书的定位和整体框架。

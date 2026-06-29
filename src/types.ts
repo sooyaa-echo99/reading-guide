@@ -5,6 +5,23 @@ export interface StickyNote {
   examples: string[];
 }
 
+export interface CharacterNode {
+  id: string;
+  name: string;
+  description: string;
+}
+
+export interface CharacterEdge {
+  from: string;
+  to: string;
+  label: string;
+}
+
+export interface CharacterRelations {
+  nodes: CharacterNode[];
+  edges: CharacterEdge[];
+}
+
 export interface BookGuide {
   bookName: string;
   author: string;
@@ -33,6 +50,8 @@ export interface BookGuide {
   };
   /** 索引贴分类（可选，用户开启后生成） */
   stickyNotes?: StickyNote[];
+  /** 人物关系图（可选，小说/文学类生成） */
+  characterRelations?: CharacterRelations;
   /** 生成时间 */
   generatedAt: string;
 }
