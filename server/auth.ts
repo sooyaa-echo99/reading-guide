@@ -3,14 +3,14 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import {
   findUserByUsername, createUser, findUserById, logOperation,
-} from '../server/db.js';
+} from './db.js';
 
 const router = Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'reading-guide-secret-2026';
 const TOKEN_EXPIRY = '30d';
 
 // POST /api/auth/register
-router.post('/register', (req: Request, res: Response) => {
+router.post('/register', async (req: Request, res: Response) => {
   const { username, password } = req.body;
 
   if (!username || !password) {
@@ -29,23 +29,22 @@ router.post('/register', (req: Request, res: Response) => {
     return;
   }
 
-  // Unique check
-  const existing = findUserByUsername(trimmed);
+  const existing = await findUserByUsername(trimmed);
   if (existing) {
     res.status(409).json({ error: '用户名已被注册' });
     return;
   }
 
   const hash = bcrypt.hashSync(password, 10);
-  const user = createUser(trimmed, hash);
+  const user = await createUser(trimmed, hash);
   const token = jwt.sign({ userId: user.id, username: trimmed }, JWT_SECRET, { expiresIn: TOKEN_EXPIRY });
-  logOperation(trimmed, 'register', trimmed, '新用户注册');
+  await logOperation(trimmed, 'register', trimmed, '新用户注册');
 
   res.json({ token, username: trimmed, userId: user.id });
 });
 
 // POST /api/auth/login
-router.post('/login', (req: Request, res: Response) => {
+router.post('/login', async (req: Request, res: Response) => {
   const { username, password } = req.body;
 
   if (!username || !password) {
@@ -53,14 +52,14 @@ router.post('/login', (req: Request, res: Response) => {
     return;
   }
 
-  const user = findUserByUsername(username.trim());
+  const user = await findUserByUsername(username.trim());
   if (!user || !bcrypt.compareSync(password, user.password_hash)) {
     res.status(401).json({ error: '用户名或密码错误' });
     return;
   }
 
   const token = jwt.sign({ userId: user.id, username: user.username }, JWT_SECRET, { expiresIn: TOKEN_EXPIRY });
-  logOperation(user.username, 'login', user.username, '用户登录');
+  await logOperation(user.username, 'login', user.username, '用户登录');
   res.json({ token, username: user.username, userId: user.id });
 });
 
@@ -82,5 +81,16 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
     res.status(401).json({ error: '登录已过期，请重新登录' });
   }
 }
+
+// GET /api/auth/me - verify token and get current user info
+router.get('/me', authMiddleware, async (req: Request, res: Response) => {
+  const userId = (req as any).userId;
+  const user = await findUserById(userId);
+  if (!user) {
+    res.status(404).json({ error: '用户不存在' });
+    return;
+  }
+  res.json({ userId: user.id, username: user.username });
+});
 
 export default router;

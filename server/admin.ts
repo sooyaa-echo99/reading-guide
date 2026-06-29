@@ -16,14 +16,14 @@ function adminOnly(req: Request, res: Response, next: NextFunction) {
 }
 
 // GET /api/admin/users - list all users
-router.get('/users', adminOnly, (_req: Request, res: Response) => {
-  const users = getAllUsers();
+router.get('/users', adminOnly, async (_req: Request, res: Response) => {
+  const users = await getAllUsers();
   res.json(users);
 });
 
 // GET /api/admin/logs - list all operation logs
-router.get('/logs', adminOnly, (_req: Request, res: Response) => {
-  const logs = getOpLogs();
+router.get('/logs', adminOnly, async (_req: Request, res: Response) => {
+  const logs = await getOpLogs();
   res.json(logs);
 });
 

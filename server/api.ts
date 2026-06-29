@@ -112,7 +112,7 @@ router.post('/generate', authMiddleware, async (req: Request, res: Response) => 
     };
 
     const username = (req as any).username;
-    logOperation(username, 'guide_generate', bookName, '生成阅读指南');
+    await logOperation(username, 'guide_generate', bookName, '生成阅读指南');
 
     res.json(guide);
   } catch (err: any) {

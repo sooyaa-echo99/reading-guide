@@ -3,20 +3,20 @@ import { authMiddleware } from './auth.js';
 import {
   getBookshelf, upsertBookshelf, updateBookshelfStatus, deleteBookshelfEntry,
   logOperation,
-} from '../server/db.js';
+} from './db.js';
 
 const router = Router();
 router.use(authMiddleware);
 
 // GET /api/bookshelf - list user's bookshelf
-router.get('/', (req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   const userId = (req as any).userId;
-  const rows = getBookshelf(userId);
+  const rows = await getBookshelf(userId);
   res.json(rows);
 });
 
 // POST /api/bookshelf/add - add book to unread shelf
-router.post('/add', (req: Request, res: Response) => {
+router.post('/add', async (req: Request, res: Response) => {
   const userId = (req as any).userId;
   const username = (req as any).username;
   const { bookKey, bookName, author, guideData, withStickyNotes } = req.body;
@@ -26,7 +26,7 @@ router.post('/add', (req: Request, res: Response) => {
     return;
   }
 
-  const result = upsertBookshelf({
+  const result = await upsertBookshelf({
     user_id: userId,
     book_key: bookKey,
     book_name: bookName,
@@ -35,12 +35,12 @@ router.post('/add', (req: Request, res: Response) => {
     with_sticky_notes: withStickyNotes ? 1 : 0,
   });
 
-  logOperation(username, 'bookshelf_add', bookName, result.status === 'unread' ? '加入未读书架' : '更新书架');
+  await logOperation(username, 'bookshelf_add', bookName, result.status === 'unread' ? '加入未读书架' : '更新书架');
   res.json({ id: result.id, status: result.status, message: '已更新书架' });
 });
 
 // POST /api/bookshelf/move-to-read - move to read with review
-router.post('/move-to-read', (req: Request, res: Response) => {
+router.post('/move-to-read', async (req: Request, res: Response) => {
   const userId = (req as any).userId;
   const username = (req as any).username;
   const { bookKey, review } = req.body;
@@ -55,29 +55,29 @@ router.post('/move-to-read', (req: Request, res: Response) => {
     return;
   }
 
-  const ok = updateBookshelfStatus(userId, bookKey, 'read', review.trim());
+  const ok = await updateBookshelfStatus(userId, bookKey, 'read', review.trim());
   if (!ok) {
     res.status(404).json({ error: '书架上未找到该书' });
     return;
   }
 
-  logOperation(username, 'mark_read', bookKey, `已读: ${review.trim()}`);
+  await logOperation(username, 'mark_read', bookKey, `已读: ${review.trim()}`);
   res.json({ message: '已移入已读书架' });
 });
 
 // DELETE /api/bookshelf/:id - remove from shelf
-router.delete('/:id', (req: Request, res: Response) => {
+router.delete('/:id', async (req: Request, res: Response) => {
   const userId = (req as any).userId;
   const username = (req as any).username;
   const { id } = req.params;
 
-  const ok = deleteBookshelfEntry(userId, parseInt(id));
+  const ok = await deleteBookshelfEntry(userId, parseInt(id));
   if (!ok) {
     res.status(404).json({ error: '未找到该书' });
     return;
   }
 
-  logOperation(username, 'delete', `id:${id}`, '从书架删除');
+  await logOperation(username, 'delete', `id:${id}`, '从书架删除');
   res.json({ message: '已从书架移除' });
 });
 

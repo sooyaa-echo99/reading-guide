@@ -5,6 +5,7 @@ import bookshelfRoutes from './bookshelf.js';
 import answersRoutes from './answers.js';
 import apiRoutes from './api.js';
 import adminRoutes from './admin.js';
+import { initDB } from './db.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -30,8 +31,16 @@ app.get('*', (_req, res) => {
   res.sendFile(path.join(distPath, 'index.html'));
 });
 
-app.listen(PORT, () => {
-  console.log(`Reading Guide server running at http://localhost:${PORT}`);
-});
+// Initialize DB then start server
+initDB()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`Reading Guide server running at http://localhost:${PORT}`);
+    });
+  })
+  .catch((err) => {
+    console.error('Failed to initialize database:', err);
+    process.exit(1);
+  });
 
 export default app;

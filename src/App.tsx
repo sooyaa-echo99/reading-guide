@@ -105,7 +105,7 @@ function AppContent() {
 
 export default function App() {
   return (
-    <BrowserRouter basename="/reading-guide">
+    <BrowserRouter>
       <AuthProvider>
         <AppContent />
       </AuthProvider>
