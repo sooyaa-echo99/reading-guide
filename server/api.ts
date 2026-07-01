@@ -41,10 +41,11 @@ router.post('/generate', authMiddleware, async (req: Request, res: Response) => 
   }
 
   const bookDesc = author ? `《${bookName}》，作者：${author}` : `《${bookName}》`;
-  const stickyHint = withStickyNotes ? '（需要生成索引贴分类）' : '';
 
-  const systemPrompt = buildSystemPrompt(!!withStickyNotes, true);
-  const userPrompt = `请为以下书籍生成读前指南：${bookDesc}${stickyHint}。请严格按照JSON格式输出，不要输出任何其他内容。`;
+  const systemPrompt = FIXED_SYSTEM_PROMPT;
+  const userPrompt = withStickyNotes
+    ? `请为以下书籍生成读前指南：${bookDesc}。包括 stickyNotes 索引贴和 characterRelations 人物关系图。请严格按照JSON格式输出。`
+    : `请为以下书籍生成读前指南：${bookDesc}。stickyNotes 字段输出空数组 []，按实际情况生成 characterRelations。请严格按照JSON格式输出。`;
 
   try {
     const response = await fetch(DEEPSEEK_API, {
@@ -122,45 +123,9 @@ router.post('/generate', authMiddleware, async (req: Request, res: Response) => 
   }
 });
 
-function buildSystemPrompt(withStickyNotes: boolean, withCharacterRelations: boolean): string {
-  const stickySection = withStickyNotes ? `
-## 索引贴分类（当用户开启时生成）
-在 JSON 中额外添加 "stickyNotes" 字段，为读者生成 4-6 个索引贴分类。
-
-### 分类设计原则
-- 根据这本书的内容，生成 4-6 个有意义的阅读主题分类
-- 分类应反映这本书的核心阅读线索（不剧透）
-- 小说/文学类示例："关键转折"、"人物弧光"、"意象与象征"、"悬念与伏笔"、"情感高潮"
-- 社科/历史类示例："核心论点"、"关键证据"、"方法论转折"、"历史节点"、"争议焦点"
-- 技术/商业类示例："核心概念"、"设计哲学"、"实践案例"、"常见陷阱"、"思维框架"
-- 分类名简洁（2-6字），中文
-
-### 示例内容
-每个分类下提供 2-3 条阅读示例，引导读者在阅读中关注这些方面：
-- 示例描述阅读时应该注意什么，完全不提及具体章节、位置、情节
-- 语言平实有温度，每条 15-30 字
-- 像一位博学的朋友在给你阅读建议，而不是检查清单
-
-### 格式
-"stickyNotes": [
-  {
-    "category": "关键转折",
-    "examples": [
-      "注意人物关系的第一次重大变化——从细节中感受裂痕的扩大",
-      "留意某段看似平淡的对话，它可能暗示了后续的走向"
-    ]
-  },
-  {
-    "category": "意象与象征",
-    "examples": [
-      "关注作者反复使用的自然意象，它们往往有双重含义",
-      "某些物品的描写远不止表面——它们在为情绪制造回响"
-    ]
-  }
-]
-` : '';
-
-  return `你是一位资深的阅读指导专家。你的任务是为读者提供一本书的"读前指南"，帮助他们在阅读之前建立理解框架。
+// FIXED system prompt — never changes, to maximize DeepSeek prefix cache hits.
+// All conditional behavior (stickyNotes on/off) is controlled via the user message.
+const FIXED_SYSTEM_PROMPT = `你是一位资深的阅读指导专家。你的任务是为读者提供一本书的"读前指南"，帮助他们在阅读之前建立理解框架。
 
 ## 核心原则
 - 绝不剧透：不透露具体情节、凶手身份、人物命运、故事转折。
@@ -195,10 +160,10 @@ function buildSystemPrompt(withStickyNotes: boolean, withCharacterRelations: boo
     "languageStyle": "语言风格描述（30字内）",
     "infoDensity": "信息密度描述（30字内）",
     "estimatedHours": "预估阅读时长，如'6-8小时'"
-  },${withStickyNotes ? `
+  },
   "stickyNotes": [
     { "category": "分类名", "examples": ["示例1", "示例2"] }
-  ],` : ''}
+  ],
   "characterRelations": {
     "nodes": [
       { "id": "1", "name": "主要人物1", "description": "角色简介（20字内，不剧透结局）" },
@@ -209,8 +174,27 @@ function buildSystemPrompt(withStickyNotes: boolean, withCharacterRelations: boo
     ]
   }
 }
-${stickySection}
-## 人物关系图设计原则（重要）
+
+## 索引贴分类（stickyNotes）
+当用户要求生成索引贴时，为读者生成 4-6 个索引贴分类。
+
+### 分类设计原则
+- 根据这本书的内容，生成 4-6 个有意义的阅读主题分类
+- 分类应反映这本书的核心阅读线索（不剧透）
+- 小说/文学类示例："关键转折"、"人物弧光"、"意象与象征"、"悬念与伏笔"、"情感高潮"
+- 社科/历史类示例："核心论点"、"关键证据"、"方法论转折"、"历史节点"、"争议焦点"
+- 技术/商业类示例："核心概念"、"设计哲学"、"实践案例"、"常见陷阱"、"思维框架"
+- 分类名简洁（2-6字），中文
+
+### 示例内容
+每个分类下提供 2-3 条阅读示例，引导读者在阅读中关注这些方面：
+- 示例描述阅读时应该注意什么，完全不提及具体章节、位置、情节
+- 语言平实有温度，每条 15-30 字
+- 像一位博学的朋友在给你阅读建议，而不是检查清单
+
+当用户未要求生成索引贴时，stickyNotes 字段输出空数组 []。
+
+## 人物关系图设计原则（characterRelations）
 - 对于小说、文学、戏剧等有明确人物关系的书籍，必须生成 characterRelations 字段
 - 对于非虚构、技术、哲学等无人物的书，characterRelations 可为空对象 {}
 - nodes：选取 3-8 个主要人物，每个包含 id（数字字符串）、name（姓名）、description（一句话角色定位，不剧透）
@@ -232,6 +216,5 @@ ${stickySection}
 - 问题应该让读者在读完后能立刻感受到"这个问题问到了点子上"。
 - 运用书中的核心概念、独特视角或标志性元素来提问。
 - 问题之间应有递进关系：从"是什么"到"为什么"再到"与我何干"。`;
-}
 
 export default router;
